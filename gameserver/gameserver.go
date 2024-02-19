@@ -107,19 +107,21 @@ func handleConnection(conn net.Conn) {
 //	  state GameState
 //	}
 type Player struct {
-	ID         string
-	client     Client
-	ctx        context.Context
-	cancelFunc context.CancelFunc // Used to cancel the context
+	ID          string
+	client      Client
+	ctx         context.Context
+	cancelFunc  context.CancelFunc // Used to cancel the context
+	eventBuffer []string
 }
 
 func NewPlayer(c Client) *Player {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	return &Player{
-		ID:         uuid.NewString(), // Implement this function to generate unique IDs
-		client:     c,
-		ctx:        ctx,
-		cancelFunc: cancelFunc,
+		ID:          uuid.NewString(), // Implement this function to generate unique IDs
+		client:      c,
+		ctx:         ctx,
+		cancelFunc:  cancelFunc,
+		eventBuffer: make([]string, 100),
 	}
 }
 
@@ -138,13 +140,14 @@ func (p *Player) ReadActions(actionCh chan<- string, errCh chan<- error) {
 					errCh <- err
 					return
 				}
+				p.eventBuffer = append(p.eventBuffer, string(buffer[:n]))
 				actionCh <- string(buffer[:n])
 			}
 		}
 	}()
 }
 
-func (gm *GameManager) StartGame(game *GameInstance) {
+func (gm *GameMaster) StartGame(game *GameInstance) {
 	actionCh := make(chan string)
 	errCh := make(chan error)
 
@@ -157,6 +160,7 @@ func (gm *GameManager) StartGame(game *GameInstance) {
 		for {
 			select {
 			case action := <-actionCh:
+				print("ACTION", action)
 				// Process action
 			case <-errCh:
 				// One of the players disconnected, handle cleanup
@@ -169,23 +173,40 @@ func (gm *GameManager) StartGame(game *GameInstance) {
 	}()
 }
 
+func (gm *GameMaster) MatchMake() {
+	for gm.PlayerQ.GetSize() > 1 {
+		p1, err := gm.PlayerQ.PopLeft()
+		p2, err := gm.PlayerQ.PopLeft()
+
+		p1State := make(map[string]string)
+		p2State := make(map[string]string)
+
+		// players :=
+
+	}
+}
+
 type GameInstance struct {
-	Players []Player
+	Players      []Player
+	running      bool
+	playersReady int
+	PlayerState  map[string]map[string]string
 }
 
 type GameMaster struct {
 	PlayerQ     PlayerDequeue
-	GameLobbies map[string][]*GameInstance
+	GameLobbies map[string]*GameInstance
 	lock        sync.RWMutex
 }
 
 type PlayerDequeue interface {
-	Get(i int) (*Client, error)
-	Set(i int, c *Client) error
+	Get(i int) (Client, error)
+	Set(i int, c Client) error
 	// PushLeft(*Client)
 	// PushRight(*Client)
 	Accept(c net.Conn) error
-	PopLeft() (*Client, error)
+	PopLeft() (Client, error)
+	GetSize() int
 	Resize()
 }
 
@@ -193,6 +214,10 @@ type PDeque struct {
 	Q []Client
 	s int
 	e int
+}
+
+func (q PDeque) GetSize() int {
+	return q.e - q.s
 }
 
 func (PQ PDeque) Get(i int) (Client, error) {
@@ -214,7 +239,7 @@ func (PQ PDeque) PopLeft() (Client, error) {
 		return nil, errors.New("skill issue")
 	}
 	t := PQ.Q[PQ.s]
-	PQ.Q[PQ.s] = nil
+	// PQ.Q[PQ.s] = nil
 	PQ.s += 1
 	return t, nil
 }
