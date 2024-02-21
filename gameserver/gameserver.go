@@ -7,12 +7,19 @@ import (
 	// "container/heap"
 	// "container/dequeu"
 	"context"
+	"reflect"
+	// "encoding"
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 
 	// "strconv"
+	"sync"
+
+	// "github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
+
+	// "strconv
 	"github.com/google/uuid"
 	// "strconv"
 	// "time"
@@ -24,6 +31,9 @@ type TwoWayConn struct {
 }
 
 func Start() {
+
+	test := false
+
 	GM := GameMasterFactory(100)
 	// Listen for incoming connections on port 8080
 	ln, err := net.Listen("tcp", ":80")
@@ -36,17 +46,17 @@ func Start() {
 
 	// Accept incoming connections and handle them
 	for {
-		print("waiting...")
+		fmt.Println("waiting...")
 		conn, err := ln.Accept()
-		print(conn.RemoteAddr().String())
+		fmt.Println(conn.RemoteAddr().String())
 		// GM.PlayerQ.Accept(&conn)
 		// if GM.PlayerQ.GetSize() > 1 {
 		// 	GM.MatchMake()
 		// }
 
-		print("ACCEPTED!")
+		fmt.Println("ACCEPTED!")
 		// c := utils.CreatePlayer(conn)
-		// print(conn)
+		// fmt.Println(conn)
 		if err != nil {
 			fmt.Println(err)
 			continue
@@ -65,16 +75,16 @@ func Start() {
 		//Parse string split at ":"
 		role := splitStr[:2]
 		id := splitStr[2:]
-		print(role, id)
+		fmt.Println(role, id)
 		// if id is not in map, add it
 		// rec := false
 		if _, ok := conMap[id]; !ok {
 			if role == "R:" {
-				print("got first R")
+				fmt.Println("got first R")
 				// rec = true
 				conMap[id] = TwoWayConn{inbound: &conn, outbound: nil}
 			} else {
-				print("got first S")
+				fmt.Println("got first S")
 
 				conMap[id] = TwoWayConn{inbound: nil, outbound: &conn}
 			}
@@ -82,10 +92,10 @@ func Start() {
 			temp := conMap[id]
 			if role == "R:" {
 				// rec = true
-				print("got second R")
+				fmt.Println("got second R")
 				temp.inbound = &conn
 			} else {
-				print("got second S")
+				fmt.Println("got second S")
 				temp.outbound = &conn
 			}
 			conMap[id] = temp
@@ -99,6 +109,7 @@ func Start() {
 			//push to queue
 			GM.PlayerQ.Accept(conMap[id].inbound, conMap[id].outbound)
 			if GM.PlayerQ.GetSize() > 1 {
+				fmt.Println("Match Making! ")
 				GM.MatchMake()
 			}
 
@@ -113,6 +124,98 @@ func Start() {
 		// 	go handleConnection(conn, conMap, id, role)
 		// }
 
+		if test {
+			Testhandle(conn)
+		}
+	}
+}
+
+type Item struct {
+	Foo string
+}
+
+// local data = {
+// 	type = "request",
+// 	action = "CO", -- Cursor Only
+//
+// 	payload = {
+// 		seq = M.seq,
+// 		lines = {},
+// 		cursor = cVal,
+// 	},
+// }
+
+// type Payload struct {
+//
+//	        seq = int
+//	        lines = map[int]string
+//	        cursorCol = int
+//	        cursorRow = int
+//	}
+type NvimReq struct {
+	Type   string
+	Action string
+	// Payload string
+	Payload struct {
+		Seq       int
+		Lines     string
+		CursorCol int
+		CursorRow int
+		LineFrom  int
+		LineTo    int
+	}
+}
+
+type NvimRes struct {
+	Type   string
+	Action string
+	// Payload struct {
+	Seq   int
+	Lines string
+	// LineNums []string
+	CRow int
+	CCol int
+	// LineFrom int
+	// LineTo   int
+	// }
+}
+
+func Decode(buf *[]byte) *NvimReq {
+
+	var item NvimReq
+	err := msgpack.Unmarshal(*buf, &item)
+	if err != nil {
+		panic(err)
+	}
+	return &item
+}
+
+func Testhandle(conn net.Conn) {
+	fmt.Println("keeping open\n")
+	defer conn.Close()
+
+	keepOpen := true
+	fmt.Println("CONN:\n")
+	fmt.Println(conn)
+
+	for keepOpen {
+		fmt.Println("parsing\n")
+		buf := make([]byte, 1024)
+		_, err := conn.Read(buf)
+		fmt.Println("PARSED RAW: ", string(buf))
+
+		item := Decode(&buf)
+		fmt.Println("\nparsed\n")
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println("Received: ", item)
+		// fmt.Println(item.Payload.Lines["1"])
+		serverRes := "SERVER MESSAGE:" + string(buf) + "\n"
+		conn.Write([]byte(serverRes))
+		fmt.Println("\nDONE WRITING: ", serverRes)
 	}
 }
 
@@ -126,7 +229,7 @@ func handleConnection(conn net.Conn, conMap map[string]TwoWayConn, id string, ro
 
 	for keepOpen {
 		fmt.Println("HANDLING :", role)
-		print(conMap)
+		fmt.Println(conMap)
 
 		// Read incoming data
 		buf := make([]byte, 1024)
@@ -161,16 +264,14 @@ func handleConnection(conn net.Conn, conMap map[string]TwoWayConn, id string, ro
 				fmt.Println("IN ADDR: ", in.RemoteAddr().String())
 				// out.Write([]byte(serverRes))
 				in.Write([]byte(serverRes))
-				print("DONE WRITING: ", serverRes)
+				fmt.Println("DONE WRITING: ", serverRes)
 			}
 		}
 
 		// conn.Write([]byte(serverRes))
-		// print("DONE WRITING: ", serverRes)
+		// fmt.Println("DONE WRITING: ", serverRes)
 	}
-}
-
-// type PlayerQ interface {
+} // type PlayerQ interface {
 // 	Accept(conn *net.Conn)
 //
 // 	PopLeft() Client
@@ -209,7 +310,7 @@ type Player struct {
 	client      Client
 	ctx         context.Context
 	cancelFunc  context.CancelFunc // Used to cancel the context
-	eventBuffer []string
+	eventBuffer *NvimReq
 }
 
 func NewPlayer(c Client) *Player {
@@ -219,27 +320,51 @@ func NewPlayer(c Client) *Player {
 		client:      c,
 		ctx:         ctx,
 		cancelFunc:  cancelFunc,
-		eventBuffer: make([]string, 100),
+		eventBuffer: nil,
 	}
 }
 
-func (p *Player) RecieveAction(actionCh chan<- string, errCh chan<- error) {
+func (p *Player) RecieveAction(actionCh chan<- []byte, errCh chan<- error) {
 	go func() {
-		buffer := make([]byte, 1024)
 		for {
 			select {
 			case <-p.ctx.Done():
 				// Context was cancelled, stop the goroutine
 				return
 			default:
+				buffer := make([]byte, 1024)
 				// Attempt to read from the connection
-				n, err := p.client.Receive(buffer)
+				_, err := p.client.Receive(buffer)
 				if err != nil {
 					errCh <- err
 					return
 				}
-				p.eventBuffer = append(p.eventBuffer, string(buffer[:n]))
-				actionCh <- string(buffer[:n])
+				// p.eventBuffer = append(p.eventBuffer, string(buffer[:n]))
+				// var req NvimReq
+				req := Decode(&buffer)
+				if reflect.DeepEqual(p.eventBuffer, req) {
+					continue
+				} else {
+					p.eventBuffer = req
+				}
+				var res NvimRes
+				res.Action = req.Action
+				res.Type = req.Type
+				// outLines := make([]string, 30)
+				// lineNums := make([]string, len(req.Payload.Lines))
+
+				// for k := 0; k < len(req.Payload.Lines); k++ {
+				// 	// lineNums = append(lineNums, string(k))
+				// 	// outLines = append(outLines, v)
+				// 	lineNums[k] = req.Payload.Lines[string(k)]
+				// }
+				res.CCol = req.Payload.CursorCol
+				res.CRow = req.Payload.CursorRow
+				res.Lines = req.Payload.Lines
+				fmt.Println("RES: From: ", res.Action, res.Type, res.Lines)
+				// res.Payload.LineNums = lineNums
+				buf, err := msgpack.Marshal(&res)
+				actionCh <- buf
 			}
 		}
 	}()
@@ -248,9 +373,9 @@ func (p *Player) RecieveAction(actionCh chan<- string, errCh chan<- error) {
 func (gm *GameMaster) StartGame(game *GameInstance) {
 	// Create channels for each player
 	fmt.Println("STARTING GAME")
-	p1ActionCh := make(chan string)
+	p1ActionCh := make(chan []byte)
 	p1ErrCh := make(chan error)
-	p2ActionCh := make(chan string)
+	p2ActionCh := make(chan []byte)
 	p2ErrCh := make(chan error)
 
 	// Send "READY UP!" message to both players
@@ -283,7 +408,7 @@ func (gm *GameMaster) StartGame(game *GameInstance) {
 	go func() {
 		for action := range p1ActionCh {
 			// Relay action from player 1 to player 2
-			fmt.Println("RELAYING ACTION", action)
+			fmt.Println("RELAYING ACTION to p2", action)
 			game.Players[1].client.Send(action)
 		}
 	}()
@@ -291,7 +416,7 @@ func (gm *GameMaster) StartGame(game *GameInstance) {
 	go func() {
 		for action := range p2ActionCh {
 			// Relay action from player 2 to player 1
-			fmt.Println("RELAYING ACTION", action)
+			fmt.Println("RELAYING ACTION TO p1", action)
 			game.Players[0].client.Send(action)
 		}
 	}()
@@ -463,8 +588,8 @@ func (PQ *PDeque) Accept(cin *net.Conn, cout *net.Conn) (int, error) {
 func (PQ *PDeque) Resize() {
 	t := make([]Client, 2*cap(PQ.Q), 2*cap(PQ.Q))
 	// r := PQ.Q[PQ.s:]
-	print(cap(t))
-	print(cap(PQ.Q))
+	fmt.Println(cap(t))
+	fmt.Println(cap(PQ.Q))
 	if PQ.E < PQ.S {
 		copy(t, PQ.Q[PQ.S:])
 		copy(t, PQ.Q[:PQ.E])
@@ -478,7 +603,7 @@ func (PQ *PDeque) Resize() {
 }
 
 type Client interface {
-	Send(message string) error
+	Send(message []byte) error
 	Receive([]byte) (int, error)
 	Close() (error, error)
 }
@@ -503,8 +628,8 @@ func CreatePlayer(cin *net.Conn, cout *net.Conn) Client { // Return Client inter
 	return &t // This now correctly returns something that implements Client
 }
 
-func (sc *SocketClient) Send(message string) error { // Only return error
-	n, err := (*sc.OutSocket).Write([]byte(message))
+func (sc *SocketClient) Send(message []byte) error { // Only return error
+	n, err := (*sc.OutSocket).Write(message)
 	fmt.Println(n) // Assuming you want to do something with n, or else remove this
 	return err
 }
